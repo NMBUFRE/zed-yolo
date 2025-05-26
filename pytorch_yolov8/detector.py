@@ -39,10 +39,10 @@ def xywh2abcd(xywh, im_shape):
     output[1][0] = x_max
     output[1][1] = y_min
 
-    output[2][0] = x_min
+    output[2][0] = x_max
     output[2][1] = y_max
 
-    output[3][0] = x_max
+    output[3][0] = x_min
     output[3][1] = y_max
     return output
 
@@ -72,7 +72,7 @@ def torch_thread(weights, img_size, conf_thres=0.2, iou_thres=0.45):
         if run_signal:
             lock.acquire()
 
-            img = cv2.cvtColor(image_net, cv2.COLOR_BGRA2RGB)
+            img = cv2.cvtColor(image_net, cv2.COLOR_RGBA2RGB)
             # https://docs.ultralytics.com/modes/predict/#video-suffixes
             det = model.predict(img, save=False, imgsz=img_size, conf=conf_thres, iou=iou_thres)[0].cpu().numpy().boxes
 
@@ -100,7 +100,7 @@ def main():
     # Create a InitParameters object and set configuration parameters
     init_params = sl.InitParameters(input_t=input_type, svo_real_time_mode=True)
     init_params.coordinate_units = sl.UNIT.METER
-    init_params.depth_mode = sl.DEPTH_MODE.ULTRA  # QUALITY
+    init_params.depth_mode = sl.DEPTH_MODE.NEURAL
     init_params.coordinate_system = sl.COORDINATE_SYSTEM.RIGHT_HANDED_Y_UP
     init_params.depth_maximum_distance = 50
 
@@ -123,10 +123,11 @@ def main():
     obj_param = sl.ObjectDetectionParameters()
     obj_param.detection_model = sl.OBJECT_DETECTION_MODEL.CUSTOM_BOX_OBJECTS
     obj_param.enable_tracking = True
+    obj_param.enable_segmentation = False  # designed to give person pixel mask with internal OD
     zed.enable_object_detection(obj_param)
 
     objects = sl.Objects()
-    obj_runtime_param = sl.ObjectDetectionRuntimeParameters()
+    obj_runtime_param = sl.CustomObjectDetectionRuntimeParameters()
 
     # Display
     camera_infos = zed.get_camera_information()
@@ -154,6 +155,9 @@ def main():
 
     while viewer.is_available() and not exit_signal:
         if zed.grab(runtime_params) == sl.ERROR_CODE.SUCCESS:
+
+            print(zed.get_current_fps())
+
             # -- Get the image
             lock.acquire()
             zed.retrieve_image(image_left_tmp, sl.VIEW.LEFT)
@@ -170,7 +174,7 @@ def main():
             # -- Ingest detections
             zed.ingest_custom_box_objects(detections)
             lock.release()
-            zed.retrieve_objects(objects, obj_runtime_param)
+            zed.retrieve_custom_objects(objects, obj_runtime_param)
 
             # -- Display
             # Retrieve display data
@@ -189,8 +193,8 @@ def main():
             track_view_generator.generate_view(objects, cam_w_pose, image_track_ocv, objects.is_tracked)
 
             cv2.imshow("ZED | 2D View and Birds View", global_image)
-            key = cv2.waitKey(10)
-            if key == 27:
+            key = cv2.waitKey(1)
+            if key == 27 or key == ord('q') or key == ord('Q'):
                 exit_signal = True
         else:
             exit_signal = True
@@ -203,7 +207,7 @@ def main():
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', type=str, default='yolov8m.pt', help='model.pt path(s)')
-    parser.add_argument('--svo', type=str, default=None, help='optional svo file')
+    parser.add_argument('--svo', type=str, default=None, help='optional svo file, if not passed, use the plugged camera instead')
     parser.add_argument('--img_size', type=int, default=416, help='inference size (pixels)')
     parser.add_argument('--conf_thres', type=float, default=0.4, help='object confidence threshold')
     opt = parser.parse_args()

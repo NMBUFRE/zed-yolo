@@ -77,48 +77,6 @@ std::vector<sl::uint2> cvt(const BBox &bbox_in) {
     return bbox_out;
 }
 
-std::mutex detector_mtx, img_mtx;
-bool exit_detector = false;
-std::vector<sl::CustomBoxObjectData> objects_in;
-sl::Mat left_sl;
-sl::Timestamp prev_ts = 0, custom_data_ts = 0;
-sl::Resolution display_resolution;
-Yolo detector;
-
-void run_detector() {
-    while (!exit_detector) {
-
-        if (prev_ts != left_sl.timestamp) {
-
-            // Running inference
-            auto detections = detector.run(left_sl, display_resolution.height, display_resolution.width, CONF_THRESH);
-
-            // Preparing for ZED SDK ingesting
-            std::vector<sl::CustomBoxObjectData> objects_tmp;
-            for (auto &it : detections) {
-                sl::CustomBoxObjectData tmp;
-                // Fill the detections into the correct format
-                tmp.unique_object_id = sl::generate_unique_id();
-                tmp.probability = it.prob;
-                tmp.label = (int) it.label;
-                tmp.bounding_box_2d = cvt(it.box);
-                tmp.is_grounded = ((int) it.label == 0); // Only the first class (person) is grounded, that is moving on the floor plane
-                // others are tracked in full 3D space
-                objects_tmp.push_back(tmp);
-            }
-
-            detector_mtx.lock();
-            objects_tmp.swap(objects_in);
-            custom_data_ts = left_sl.timestamp;
-            detector_mtx.unlock();
-
-            prev_ts = left_sl.timestamp;
-        }
-
-        sl::sleep_ms(1);
-    }
-}
-
 int main(int argc, char** argv) {
     if (argc == 1) {
         std::cout << "Usage: \n 1. ./yolo_onnx_zed -s yolov8s.onnx yolov8s.engine\n 2. ./yolo_onnx_zed -s yolov8s.onnx yolov8s.engine images:1x3x512x512\n 3. ./yolo_onnx_zed yolov8s.engine <SVO path>" << std::endl;
@@ -156,7 +114,6 @@ int main(int argc, char** argv) {
         if (zed_opt.find(".svo") != std::string::npos)
             init_parameters.input.setFromSVOFile(zed_opt.c_str());
     }
-
     // Open the camera
     auto returned_state = zed.open(init_parameters);
     if (returned_state != sl::ERROR_CODE::SUCCESS) {
@@ -186,6 +143,7 @@ int main(int argc, char** argv) {
 
     // Creating the inference engine class
     std::string engine_name = "";
+    Yolo detector;
     if (argc > 0)
         engine_name = argv[1];
     else {
@@ -197,8 +155,8 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
 
-    display_resolution = zed.getCameraInformation().camera_configuration.resolution;
-    sl::Mat point_cloud;
+    auto display_resolution = zed.getCameraInformation().camera_configuration.resolution;
+    sl::Mat left_sl, point_cloud;
     cv::Mat left_cv;
     sl::CustomObjectDetectionRuntimeParameters customObjectTracker_rt;
     sl::Objects objects;
@@ -206,49 +164,69 @@ int main(int argc, char** argv) {
     cam_w_pose.pose_data.setIdentity();
     auto zed_cuda_stream = zed.getCUDAStream();
 
-    std::thread detection_thread(run_detector);
-    
+    // Main loop
+    int key = -1;
     while (viewer.isAvailable()) {
-        if (zed.read() == sl::ERROR_CODE::SUCCESS) {
-            
-            // Get image for inference
+        if (zed.grab() == sl::ERROR_CODE::SUCCESS) {
+            // Get image for inference, in GPU
             zed.retrieveImage(left_sl, sl::VIEW::LEFT, sl::MEM::GPU, sl::Resolution(0, 0), detector.stream);
+
+            // Format input and run the inference
+            auto detections = detector.run(left_sl, display_resolution.height, display_resolution.width, CONF_THRESH);
+
             // Get the CPU image for display
             left_sl.updateCPUfromGPU(zed_cuda_stream);
-            
-            zed.grab();
-            zed.retrieveMeasure(point_cloud, sl::MEASURE::XYZRGBA, sl::MEM::GPU, pc_resolution);
-            zed.getPosition(cam_w_pose, sl::REFERENCE_FRAME::WORLD);
-
             // Get image for display
             left_cv = slMat2cvMat(left_sl);
 
-            // wait for the detections
-            while (left_sl.timestamp != custom_data_ts) sl::sleep_ms(1);
-            
-            detector_mtx.lock();
+            // Preparing for ZED SDK ingesting
+            std::vector<sl::CustomBoxObjectData> objects_in;
+            for (auto &it : detections) {
+                sl::CustomBoxObjectData tmp;
+                // Fill the detections into the correct format
+                tmp.unique_object_id = sl::generate_unique_id();
+                tmp.probability = it.prob;
+                tmp.label = (int) it.label;
+                tmp.bounding_box_2d = cvt(it.box);
+                tmp.is_grounded = ((int) it.label == 0); // Only the first class (person) is grounded, that is moving on the floor plane
+                // others are tracked in full 3D space
+                objects_in.push_back(tmp);
+            }
             // Send the custom detected boxes to the ZED
             zed.ingestCustomBoxObjects(objects_in);
-            detector_mtx.unlock();
 
             // Retrieve the tracked objects, with 2D and 3D attributes
             zed.retrieveCustomObjects(objects, customObjectTracker_rt);
 
             // GL Viewer
+            zed.retrieveMeasure(point_cloud, sl::MEASURE::XYZRGBA, sl::MEM::GPU, pc_resolution);
+            zed.getPosition(cam_w_pose, sl::REFERENCE_FRAME::WORLD);
             viewer.updateData(point_cloud, objects.object_list, cam_w_pose.pose_data);
 
             // Displaying the SDK objects
             draw_objects(left_cv, left_cv, objects, CLASS_COLORS);
             cv::imshow("ZED retrieved Objects", left_cv);
-            int const key{cv::waitKey(1)};
+
+            const int cv_key = cv::waitKey(1);
+            const int gl_key = viewer.getKey();
+            key = (gl_key == -1) ? cv_key : gl_key;
+            if (key == 'p' || key == 32) {
+                viewer.setPlaying(!viewer.isPlaying());
+            }
+            while ((key == -1) && !viewer.isPlaying() && viewer.isAvailable()) {
+                const int cv_key = cv::waitKey(1);
+                const int gl_key = viewer.getKey();
+                key = (gl_key == -1) ? cv_key : gl_key;
+                if (key == 'p' || key == 32) {
+                    viewer.setPlaying(!viewer.isPlaying());
+                }
+            }
+
             if (key == 'q' || key == 'Q' || key == 27)
                 break;
         }
     }
 
-    exit_detector = true;
-    
-    detection_thread.join();
     viewer.exit();
 
 
