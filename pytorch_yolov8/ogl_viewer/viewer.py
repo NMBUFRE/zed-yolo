@@ -13,8 +13,7 @@ from enum import IntEnum
 from cv_viewer.utils import *
 import pyzed.sl as sl
 
-VERTEX_SHADER = """
-# version 330 core
+VERTEX_SHADER = """# version 330 core
 layout(location = 0) in vec3 in_Vertex;
 layout(location = 1) in vec4 in_Color;
 uniform mat4 u_mvpMatrix;
@@ -25,8 +24,7 @@ void main() {
 }
 """
 
-FRAGMENT_SHADER = """
-# version 330 core
+FRAGMENT_SHADER = """# version 330 core
 in vec4 b_color;
 layout(location = 0) out vec4 out_Color;
 void main() {
@@ -34,8 +32,7 @@ void main() {
 }
 """
 
-POINTCLOUD_VERTEX_SHADER = """
-#version 330 core
+POINTCLOUD_VERTEX_SHADER = """#version 330 core
 layout(location = 0) in vec4 in_VertexRGBA;
 uniform mat4 u_mvpMatrix;
 out vec4 b_color;
@@ -47,8 +44,7 @@ void main() {
 }
 """
 
-POINTCLOUD_FRAGMENT_SHADER = """
-#version 330 core
+POINTCLOUD_FRAGMENT_SHADER = """#version 330 core
 in vec4 b_color;
 layout(location = 0) out vec4 out_Color;
 void main() {
@@ -405,7 +401,7 @@ class GLViewer:
         glutInitWindowPosition(int(wnd_w * 0.05), int(wnd_h * 0.05))
 
         glutInitDisplayMode(GLUT_DOUBLE | GLUT_SRGB | GLUT_DEPTH)
-        glutCreateWindow("ZED Object Detection")
+        glutCreateWindow(b"ZED Object Detection")
         glViewport(0, 0, wnd_w, wnd_h)
 
         glutSetOption(GLUT_ACTION_ON_WINDOW_CLOSE,

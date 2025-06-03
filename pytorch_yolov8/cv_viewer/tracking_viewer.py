@@ -29,7 +29,7 @@ def get_image_position(bounding_box_image, img_scale):
     return out_position
 
 
-def render_2D(left_display, img_scale, objects, is_tracking_on):
+def render_2D(left_display, img_scale, objects, is_tracking_on, names=None):
     overlay = left_display.copy()
 
     line_thickness = 2
@@ -63,7 +63,17 @@ def render_2D(left_display, img_scale, objects, is_tracking_on):
             # Display Object label as text
             position_image = get_image_position(obj.bounding_box_2d, img_scale)
             text_position = (int(position_image[0] - 20), int(position_image[1] - 12))
-            text = "class " + str(obj.raw_label)
+
+
+            class_id = obj.raw_label
+            if names and class_id in names:
+                text = names[class_id]
+            else:
+                text = "class " + str(class_id)
+            # text = "class " + str(obj.raw_label)
+
+
+
             text_color = (255, 255, 255, 255)
             cv2.putText(left_display, text, text_position, cv2.FONT_HERSHEY_COMPLEX_SMALL, 0.5, text_color, 1)
 
