@@ -222,13 +222,13 @@
 # import cv2
 
 # # Load the model
-# model = YOLO("best_colab_train.pt")
+# model = YOLO("best_with_large_dataset1.pt")
 
 # # Run prediction on an image
-# results = model("grapes3.webp", show=True)  # show=True opens an OpenCV window
+# results = model("test_images/lemon2.jpg", show=True)  # show=True opens an OpenCV window
 
 # # Optionally, save the results
-# results[0].save(filename="output_images/grapes3.jpg")
+# results[0].save(filename="output_images/lemon2_2.jpg")
 
 
 
@@ -253,6 +253,9 @@
 # cv2.waitKey(0)
 # cv2.destroyAllWindows()
 # cv2.imwrite("output.jpg", annotated_frame)
+
+
+
 
 
 
